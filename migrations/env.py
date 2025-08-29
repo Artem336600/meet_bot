@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import pool, create_engine
+from sqlalchemy.engine import Connection, Engine
 
 from alembic import context
 
@@ -30,6 +29,13 @@ def get_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL is not set")
+    # Для alembic используем СИНХРОННЫЙ драйвер psycopg2
+    if database_url.startswith("postgresql+asyncpg://"):
+        database_url = "postgresql+psycopg2://" + database_url[len("postgresql+asyncpg://"):]
+    elif database_url.startswith("postgres://"):
+        database_url = "postgresql+psycopg2://" + database_url[len("postgres://"):]
+    elif database_url.startswith("postgresql://") and not database_url.startswith("postgresql+psycopg2://"):
+        database_url = "postgresql+psycopg2://" + database_url[len("postgresql://"):]
     return database_url
 
 
@@ -60,20 +66,16 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_migrations_online() -> None:
-    connectable: AsyncEngine = create_async_engine(get_url(), poolclass=pool.NullPool)
+def run_migrations_online() -> None:
+    connectable: Engine = create_engine(get_url(), poolclass=pool.NullPool)
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
+    with connectable.connect() as connection:
+        do_run_migrations(connection)
 
 
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    import asyncio
-
-    asyncio.run(run_migrations_online())
+    run_migrations_online()
 
 
