@@ -149,13 +149,20 @@ async def on_snooze(callback: types.CallbackQuery) -> None:
 
 
 
-@router.message(F.voice | F.audio | F.video_note)
+@router.message(F.voice | F.audio | F.video_note | F.video)
 async def on_voice_or_audio(message: types.Message) -> None:
-    target = message.voice or message.audio or message.video_note
+    target = message.voice or message.audio or message.video_note or message.video
     if not target:
         return
 
     from io import BytesIO
+
+    # Статус распознавания
+    progress: types.Message | None = None
+    try:
+        progress = await message.answer("Получил файл. Шаг 1/4: скачивание…")
+    except Exception:
+        progress = None
 
     bio = BytesIO()
     try:
@@ -164,8 +171,19 @@ async def on_voice_or_audio(message: types.Message) -> None:
         await message.answer("Не удалось скачать файл из Telegram")
         return
 
+    if progress:
+        try:
+            await progress.edit_text("Шаг 2/4: подготовка аудио (ffmpeg)…")
+        except Exception:
+            pass
+
     audio_bytes = bio.getvalue()
     try:
+        if progress:
+            try:
+                await progress.edit_text("Шаг 3/4: распознавание…")
+            except Exception:
+                pass
         text = await asyncio.to_thread(recognize_speech_ru, audio_bytes)
     except RuntimeError as e:
         await message.answer(str(e))
@@ -177,6 +195,11 @@ async def on_voice_or_audio(message: types.Message) -> None:
     if text:
         # Саммари через Mistral (в фоне, чтобы не блокировать event loop)
         try:
+            if progress:
+                try:
+                    await progress.edit_text("Шаг 4/4: формирование саммари…")
+                except Exception:
+                    pass
             summary = await asyncio.to_thread(summarize_tasks, text)
         except Exception as e:
             summary = f"(Ошибка саммаризации: {e})"
@@ -190,8 +213,18 @@ async def on_voice_or_audio(message: types.Message) -> None:
         )
         # Кэшируем транскрипт в памяти процесса на короткое время
         _TRANSCRIPTS[message.message_id] = text
+        if progress:
+            try:
+                await progress.delete()
+            except Exception:
+                pass
     else:
         await message.answer("Не удалось распознать речь")
+        if progress:
+            try:
+                await progress.delete()
+            except Exception:
+                pass
 
 
 @router.message(F.document)
@@ -201,11 +234,17 @@ async def on_audio_document(message: types.Message) -> None:
         return
     mt = (doc.mime_type or "").lower()
     name = (doc.file_name or "").lower()
-    allowed_ext = (".mp3", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".webm", ".mp4")
-    if not (mt.startswith("audio/") or any(name.endswith(ext) for ext in allowed_ext)):
+    allowed_ext = (".mp3", ".wav", ".ogg", ".opus", ".m4a", ".aac", ".webm", ".mp4", ".mov", ".mkv", ".avi")
+    if not (mt.startswith("audio/") or mt.startswith("video/") or any(name.endswith(ext) for ext in allowed_ext)):
         return
 
     from io import BytesIO
+
+    progress: types.Message | None = None
+    try:
+        progress = await message.answer("Получил файл. Шаг 1/4: скачивание…")
+    except Exception:
+        progress = None
 
     bio = BytesIO()
     try:
@@ -214,8 +253,19 @@ async def on_audio_document(message: types.Message) -> None:
         await message.answer("Не удалось скачать файл из Telegram")
         return
 
+    if progress:
+        try:
+            await progress.edit_text("Шаг 2/4: подготовка аудио (ffmpeg)…")
+        except Exception:
+            pass
+
     audio_bytes = bio.getvalue()
     try:
+        if progress:
+            try:
+                await progress.edit_text("Шаг 3/4: распознавание…")
+            except Exception:
+                pass
         text = await asyncio.to_thread(recognize_speech_ru, audio_bytes)
     except RuntimeError as e:
         await message.answer(str(e))
@@ -226,6 +276,11 @@ async def on_audio_document(message: types.Message) -> None:
 
     if text:
         try:
+            if progress:
+                try:
+                    await progress.edit_text("Шаг 4/4: формирование саммари…")
+                except Exception:
+                    pass
             summary = await asyncio.to_thread(summarize_tasks, text)
         except Exception as e:
             summary = f"(Ошибка саммаризации: {e})"
@@ -237,8 +292,18 @@ async def on_audio_document(message: types.Message) -> None:
             reply_markup=kb,
         )
         _TRANSCRIPTS[message.message_id] = text
+        if progress:
+            try:
+                await progress.delete()
+            except Exception:
+                pass
     else:
         await message.answer("Не удалось распознать речь")
+        if progress:
+            try:
+                await progress.delete()
+            except Exception:
+                pass
 
 
 @router.message(F.text.regexp(r"^.+\|\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*\|\s*\d+$"))
