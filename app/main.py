@@ -40,6 +40,11 @@ else:
     dp = build_dispatcher()
 
     async def _run_bot():
+        # На всякий случай убираем webhook, если был настроен где-то ещё
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+        except Exception:
+            pass
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
     asyncio.get_event_loop().create_task(_run_bot())
