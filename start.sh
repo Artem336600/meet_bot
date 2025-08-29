@@ -20,6 +20,8 @@ if [ ! -d "$VOSK_MODEL_PATH" ]; then
 fi
 
 # 3) Запуск приложения
+# 3) Применим миграции и запустим приложение
+alembic upgrade head || true
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 
 
