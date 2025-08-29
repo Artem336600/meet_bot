@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from typing import Any, Dict
+from datetime import datetime
+import zoneinfo
 
 from mistralai.client import MistralClient  # type: ignore
 from mistralai.models.chat_completion import ChatMessage  # type: ignore
@@ -28,7 +30,10 @@ def summarize_tasks(transcript: str) -> str:
         "2) Перечисли только явные поручения (исполнитель и действие, опционально срок). "
         "3) Если явных задач нет — напиши 'Задачи: нет явных'."
     )
+    tz_name = os.getenv("MEETINGS_TZ", os.getenv("TZ", "Europe/Moscow"))
+    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M")
     user_prompt = (
+        f"Сейчас: {now_local} ({tz_name}).\n"
         "Транскрипт:\n" + transcript + "\n\n"
         "Верни ответ в таком формате:\n"
         "Саммари: <краткий текст>\n"
@@ -52,12 +57,16 @@ def suggest_meeting_from_transcript(transcript: str) -> dict:
     """
     client = get_mistral_client()
     model = os.getenv("MISTRAL_MODEL", "mistral-medium")
+    tz_name = os.getenv("MEETINGS_TZ", os.getenv("TZ", "Europe/Moscow"))
+    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M")
     system = (
-        "Ты планировщик встреч. По русскому транскрипту предложи ОДНУ встречу: "
-        "краткий понятный заголовок, дата и время в МСК (если дата не названа — ближайшая разумная), "
-        "и длительность из {15, 30, 45, 60}. Верни ТОЛЬКО JSON, без комментариев."
+        "Ты планировщик встреч. НИЧЕГО НЕ ДОДУМЫВАЙ. "
+        "Верни одну встречу в JSON. Если дата произносится относительно (например 'в пятницу'), "
+        "интерпретируй её относительно текущего момента и ЧАСОВОГО ПОЯСА. Если год не указан — используй текущий год; "
+        "если получилась прошедшая дата — выбери ближайшую будущую. Длительность одна из {15,30,45,60}."
     )
     user = (
+        f"Сейчас: {now_local} ({tz_name}).\n"
         "Транскрипт:\n" + transcript + "\n\n"
         "Формат JSON: {\"title\":\"...\", \"start_local\":\"YYYY-MM-DD HH:MM\", \"timezone\":\"Europe/Moscow\", \"duration_min\":30}"
     )
@@ -67,7 +76,7 @@ def suggest_meeting_from_transcript(transcript: str) -> dict:
             ChatMessage(role="system", content=system),
             ChatMessage(role="user", content=user),
         ],
-        temperature=0.2,
+        temperature=0.0,
     )
     content = resp.choices[0].message.content or ""  # type: ignore[index]
     import json
@@ -107,13 +116,16 @@ def suggest_meetings_from_transcript(transcript: str) -> list[dict]:
     """
     client = get_mistral_client()
     model = os.getenv("MISTRAL_MODEL", "mistral-medium")
+    tz_name = os.getenv("MEETINGS_TZ", os.getenv("TZ", "Europe/Moscow"))
+    now_local = datetime.now(zoneinfo.ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M")
     system = (
         "Ты извлекаешь ВСТРЕЧИ из транскрипта. НИЧЕГО НЕ ДОДУМЫВАЙ. "
-        "Добавляй встречу ТОЛЬКО если в тексте явно указаны дата/время (или относительное время, которое можно понять, например 'в пятницу в 14:00'), "
-        "и есть смысловой заголовок (цель). Если данных не хватает — пропусти такую встречу. "
-        "Верни только JSON-массив объектов с полями title, start_local (YYYY-MM-DD HH:MM), timezone (Europe/Moscow), duration_min (15/30/45/60)."
+        "Интерпретируй относительные даты/дни недели относительно текущего момента и указанного часового пояса. "
+        "Если год не указан — используй текущий год; если дата получилась в прошлом — выбери ближайшую будущую. "
+        "Добавляй встречу ТОЛЬКО если есть явные данные. Верни JSON-массив объектов с полями title, start_local (YYYY-MM-DD HH:MM), timezone (Europe/Moscow), duration_min (15/30/45/60)."
     )
     user = (
+        f"Сейчас: {now_local} ({tz_name}).\n"
         "Транскрипт:\n" + transcript + "\n\n"
         "Возврати JSON-массив без текста вокруг."
     )
